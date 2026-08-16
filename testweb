@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>无畏契约准星定制</title>
+
+<style>
+  /* ====== 这一大段是"样式"，负责好看，不影响功能，可以先不用管 ====== */
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    background: #f5f6fa;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+  }
+  .container {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  h1 { font-size: 20px; margin-top: 0; }
+  input, button, textarea {
+    width: 100%;
+    padding: 10px;
+    margin: 6px 0;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    font-size: 14px;
+  }
+  button {
+    background: #4f46e5;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  button:hover { background: #4338ca; }
+  button.secondary { background: #999; }
+  .hidden { display: none; }
+  .note-item {
+    background: #f0f0f5;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  #message {
+    color: #d33;
+    font-size: 13px;
+    min-height: 18px;
+  }
+  #userEmail {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 10px;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>欢迎登录 🚀</h1>
+  <p id="message"></p>
+
+  <!-- ============ 登录/注册区域（未登录时显示） ============ -->
+  <div id="authBox">
+    <input type="email" id="emailInput" placeholder="邮箱" />
+    <input type="password" id="passwordInput" placeholder="密码（至少6位）" />
+    <button onclick="signUp()">注册</button>
+    <button onclick="signIn()" class="secondary">登录</button>
+  </div>
+
+  <!-- ============ 登录后显示的区域 ============ -->
+  <div id="appBox" class="hidden">
+    <p id="userEmail"></p>
+    <button onclick="signOut()" class="secondary">退出登录</button>
+
+    <hr />
+
+    <h3>写一条笔记</h3>
+    <textarea id="noteInput" rows="3" placeholder="随便写点什么..."></textarea>
+    <button onclick="addNote()">保存</button>
+
+    <h3>我的笔记</h3>
+    <div id="notesList">加载中...</div>
+  </div>
+</div>
+
+<!-- ====== 引入 Supabase 官方工具库，用来连接数据库 ====== -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+  // ============================================================
+  // 第一步：填入你自己的 Supabase 信息
+  // 这两个值在 Supabase 项目里的 Settings -> API 页面可以找到
+  // SUPABASE_URL 类似：https://xxxxxxxx.supabase.co
+  // SUPABASE_ANON_KEY 是一长串字母数字
+  // ============================================================
+  const SUPABASE_URL = "https://avdbvwwmcynshtxhvrgg.supabase.co";
+  const SUPABASE_ANON_KEY = "qMAGLbVS5evQr1PiQ7jFg_WeKetMrK";
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const authBox = document.getElementById("authBox");
+  const appBox = document.getElementById("appBox");
+  const messageEl = document.getElementById("message");
+  const userEmailEl = document.getElementById("userEmail");
+
+  // 显示提示信息的小工具函数
+  function showMessage(text) {
+    messageEl.textContent = text;
+  }
+
+  // ============================================================
+  // 注册功能
+  // ============================================================
+  async function signUp() {
+    const email = document.getElementById("emailInput").value;
+    const password = document.getElementById("passwordInput").value;
+
+    const { data, error } = await supabase.auth.signUp({ email, password });
+
+    if (error) {
+      showMessage("注册失败：" + error.message);
+    } else {
+      showMessage("注册成功！请查看邮箱完成验证后再登录。");
+    }
+  }
+
+  // ============================================================
+  // 登录功能
+  // ============================================================
+  async function signIn() {
+    const email = document.getElementById("emailInput").value;
+    const password = document.getElementById("passwordInput").value;
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      showMessage("登录失败：" + error.message);
+    } else {
+      showMessage("");
+      checkLoginStatus();
+    }
+  }
+
+  // ============================================================
+  // 退出登录
+  // ============================================================
+  async function signOut() {
+    await supabase.auth.signOut();
+    checkLoginStatus();
+  }
+
+  // ============================================================
+  // 检查当前是否已登录，切换显示登录框 / 笔记区
+  // ============================================================
+  async function checkLoginStatus() {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (session) {
+      authBox.classList.add("hidden");
+      appBox.classList.remove("hidden");
+      userEmailEl.textContent = "当前登录：" + session.user.email;
+      loadNotes();
+    } else {
+      authBox.classList.remove("hidden");
+      appBox.classList.add("hidden");
+    }
+  }
+
+  // ============================================================
+  // 保存一条笔记到数据库
+  // 注意：这里假设你在 Supabase 里建了一张叫 notes 的表
+  // 表结构：id (自动), content (text), user_id (uuid), created_at (自动)
+  // ============================================================
+  async function addNote() {
+    const content = document.getElementById("noteInput").value;
+    if (!content.trim()) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const { error } = await supabase.from("User-Registration").insert({
+      content: content,
+      user_id: session.user.id
+    });
+
+    if (error) {
+      showMessage("保存失败：" + error.message);
+    } else {
+      document.getElementById("noteInput").value = "";
+      loadNotes();
+    }
+  }
+
+  // ============================================================
+  // 读取当前用户的所有笔记并显示出来
+  // ============================================================
+  async function loadNotes() {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const { data, error } = await supabase
+      .from("User-Registration")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false });
+
+    const listEl = document.getElementById("notesList");
+
+    if (error) {
+      listEl.textContent = "加载失败：" + error.message;
+      return;
+    }
+
+    if (data.length === 0) {
+      listEl.textContent = "还没有笔记，写一条试试吧～";
+      return;
+    }
+
+    listEl.innerHTML = data
+      .map(note => `<div class="note-item">${note.content}</div>`)
+      .join("");
+  }
+
+  // 页面一打开，先检查一下登录状态
+  checkLoginStatus();
+</script>
+
+</body>
+</html>
